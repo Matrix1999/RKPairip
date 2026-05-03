@@ -31,7 +31,9 @@ class CustomArgumentParser(M.argparse.ArgumentParser):
                         f'\n{C.INFO} Pairip Dex Fix Use {C.C}Flag: {C.OG}-r {C.P}( Try After Translate String to MT )\n'
                         f'{EX} -r\n\n'
                         f'\n{C.INFO} Hook CoreX {C.P}( For Unity / Flutter & Crashed Apk Apk ) {C.OG}-x {C.Y}/ {C.OG}-a -x \n'
-                        f'{EX} -x\n'
+                        f'{EX} -x\n\n'
+                        f'\n{C.INFO} Kill Pairip {C.P}( Total removal — no virtual app / .mtd needed ) {C.OG}-k\n'
+                        f'{EX} -k\n'
                     )
 
                 elif action.dest == 'Merge':
@@ -110,6 +112,12 @@ def parse_arguments():
         '-x', '--Hook_CoreX',
         action = 'store_true',
         help = f'{C.Y}➸{C.G} Hook CoreX ( For Unity / Flutter & Crashed Apk ){C.CC}'
+    )
+
+    additional.add_argument(
+        '-k', '--Kill_Pairip',
+        action = 'store_true',
+        help = f'{C.Y}➸{C.G} Kill Pairip — total removal of Pairip from manifest + smali. No virtual app, no .mtd dictionary, no VM hook. Use when -x crashes. Trade-off: any string Pairip was decrypting at runtime stays null, but the app opens. Best for apps where Pairip is only license/integrity ( e.g. Musicolet ).{C.CC}'
     )
 
     Ext = ('.apk', '.apks', '.apkm', '.xapk')
