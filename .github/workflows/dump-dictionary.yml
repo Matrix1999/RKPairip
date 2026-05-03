@@ -195,11 +195,24 @@ jobs:
             adb push /tmp/signed.apk /data/local/tmp/app.apk
             adb shell pm install -r -t /data/local/tmp/app.apk
 
-            echo "=== Launching app ==="
+            echo "=== Granting all runtime permissions ==="
+            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_EXTERNAL_STORAGE || true
+            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.WRITE_EXTERNAL_STORAGE || true
+            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_MEDIA_AUDIO || true
+            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_MEDIA_IMAGES || true
+            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_PHONE_STATE || true
+            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.POST_NOTIFICATIONS || true
+
+            echo "=== Clearing logcat then launching app ==="
+            adb logcat -c
             adb shell monkey -p "${{ github.event.inputs.package_name }}" -c android.intent.category.LAUNCHER 1
-            echo "Waiting 50s for Pairip to decode strings..."
-            sleep 50
-            adb logcat -d | grep -iE "pairip|krosbits|dictionary" | tail -40 || true
+            echo "Waiting 90s for Pairip to decode strings..."
+            sleep 90
+
+            echo "=== Full logcat around launch (crash check) ==="
+            adb logcat -d 2>/dev/null | grep -E "krosbits|FATAL|AndroidRuntime|SIGSEGV|died|crash|Pairip|CoreX|dictionary" | tail -60 || true
+
+            echo "=== Files in /data/data ==="
             adb shell "find /data/data/${{ github.event.inputs.package_name }} -type f 2>/dev/null" | tee /tmp/found.txt || true
             cat /tmp/found.txt
             mkdir -p /tmp/appdata
