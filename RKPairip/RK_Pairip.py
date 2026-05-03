@@ -17,6 +17,7 @@ from RKPairip.Patch.Pairip_CoreX import Check_CoreX, Hook_Core, Delete_SO
 from RKPairip.Patch.Fix_Dex import Scan_Application, Smali_Patcher, Replace_Strings
 from RKPairip.Patch.Manifest_Patch import Patch_Manifest, Replace_Application, Encode_Manifest
 from RKPairip.Patch.Other_Patch import Application_Name, Translate_Smali_Name, Merge_Smali_Folders, UnMerge
+from RKPairip.Patch.Kill_Pairip import Kill_Pairip_Run
 
 
 def Clear():
@@ -117,6 +118,8 @@ def RK_Techno_IND():
 
     CoreX_Hook = args.Hook_CoreX; isCoreX = False
 
+    Kill_Pairip = getattr(args, 'Kill_Pairip', False)
+
     isAPKTool = args.ApkTool; Fix_Dex = args.Repair_Dex
 
 
@@ -180,6 +183,57 @@ def RK_Techno_IND():
     L_S_F = L_S_C_F(decompile_dir, isAPKTool, Fix_Dex)
 
     smali_folders = Find_Smali_Folders(decompile_dir, isAPKTool, Fix_Dex)
+
+
+    # ---------------- Kill Pairip Flag: -k ( Total removal ) ---------------
+    if Kill_Pairip:
+        try:
+            Super_Value = Application_Name(L_S_F)
+
+            if not Super_Value:
+                exit(f"\n{C.ERROR} Could not find user's Application class — APK may not be Pairip-protected, or already patched.  ✘\n")
+
+            OR_App = f'\n{C.S}  REAL APPLICATION  {C.E} {C.OG}➸❥ {C.G}{Super_Value}  ✔\n'
+            print(OR_App)
+
+            App_Name = Scan_Application(apk_path, manifest_path, d_manifest_path, isAPKTool)
+
+            # Defensive: neutralize SignatureCheck / verifyIntegrity / license calls just in case.
+            Smali_Patch(smali_folders, False, False)
+
+            # Total removal: manifest + com/pairip/* smali tree
+            Kill_Pairip_Run(decompile_dir, manifest_path, d_manifest_path, isAPKTool, smali_folders, App_Name, Super_Value)
+
+            build_dir = build_dir.replace('_Pairip.apk', '_Killed.apk')
+
+            Recompile_Apk(decompile_dir, isAPKTool, build_dir, isFlutter)
+
+            CRC_Fix(M_Skip, apk_path, build_dir, ["AndroidManifest.xml", ".dex"])
+
+            if isAPKTool:
+                FixSigBlock(decompile_dir, apk_path, build_dir, rebuild_dir)
+
+            M.shutil.rmtree(decompile_dir)
+
+            print(
+                f"{C_Line}\n\n"
+                f"\n{C.S}  Final APK  {C.E} {C.OG}➸❥ {C.Y} {build_dir}  {C.G}✔\n"
+                + START + f'{M.time.time() - start_time:.2f}' + END +
+                f"\n{C.INFO} {C.G}Pairip is gone. Install directly — no virtual app or .mtd needed."
+                f"\n{C.NOTE} {C.G}If features that depend on Pairip-decrypted strings break, fall back to dictionary mode (default flow)."
+                f'\n{Logo}'
+            )
+
+            if M.os.name == 'posix':
+                M.subprocess.run(['termux-wake-unlock'])
+                exit(f"\n{C.X} {C.C} Releasing Wake Lock...\n")
+
+            exit(0)
+
+        except SystemExit:
+            raise
+        except Exception as e:
+            exit(f"\n{C.ERROR} {e}  ✘\n")
 
 
     # ---------------- Fix Dex Flag: -r ---------------
