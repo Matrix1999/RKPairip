@@ -192,8 +192,9 @@ jobs:
             sleep 5
             adb wait-for-device
             adb shell settings put global package_verifier_enable 0
+            adb shell pm uninstall "${{ github.event.inputs.package_name }}" || true
             adb push /tmp/signed.apk /data/local/tmp/app.apk
-            adb shell pm install -r -t /data/local/tmp/app.apk
+            adb shell pm install -t /data/local/tmp/app.apk
 
             echo "=== Granting all runtime permissions ==="
             adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_EXTERNAL_STORAGE || true
