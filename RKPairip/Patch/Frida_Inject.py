@@ -194,10 +194,21 @@ def Force_ExtractNativeLibs(decompile_dir, manifest_path, d_manifest_path, isAPK
 # Inject loadLibrary into the appComponentFactory class <clinit>
 # ============================================================
 def Inject_LoadLibrary_AppFactory(smali_folders, factory_class,
+                                  package_name,
                                   lib_name=GADGET_LIB_NAME):
     """Insert `System.loadLibrary("<lib_name>")` at the very top of the
-    appComponentFactory's <clinit>, wrapped in a Throwable try/catch so
+    appComponentFactory's <clinit>, GATED on the running process name
+    matching the app's package, and wrapped in a Throwable try/catch so
     any failure can't propagate ExceptionInInitializerError.
+
+    Why the process gate: pairip's anti-frida watchdog detects the
+    gadget after some time and SIGSEGVs the process (manifests as
+    fault addr 0x600100000011 with x10=0xdead10c0). Sub-processes such
+    as `:musicolet` run pairip too but their integrity check appears
+    to succeed without our hook (likely because pairip's first
+    decryption already happened in main process and shared state /
+    cached keys are reused). Skipping the gadget in sub-processes
+    avoids the watchdog kill there with no observed downside.
 
     AppComponentFactory is the FIRST application class Android loads
     (LoadedApk.createAppFactory, called before Application is even
@@ -225,10 +236,21 @@ def Inject_LoadLibrary_AppFactory(smali_folders, factory_class,
         return False
 
     content = open(target, 'r', encoding='utf-8').read()
-    # Wrap loadLibrary in try/Throwable so a failure can never propagate
-    # an ExceptionInInitializerError from <clinit> and kill the process.
+    # Skip gadget load when running in a sub-process (e.g. ":musicolet"
+    # service). Pairip's anti-frida watchdog SIGSEGVs sub-processes
+    # that ever load the gadget; main-process-only loading sidesteps
+    # that, while sub-processes seem to run pairip fine without us.
+    # Wrap the whole thing in try/Throwable so any failure (Hidden API
+    # block, weird device, etc) just skips the bypass instead of
+    # crashing <clinit>.
     inj = (
         '    :try_rkpairip_start\n'
+        '    invoke-static {}, Landroid/app/ActivityThread;->currentProcessName()Ljava/lang/String;\n\n'
+        '    move-result-object v0\n\n'
+        '    const-string v1, "' + package_name + '"\n\n'
+        '    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n\n'
+        '    move-result v2\n\n'
+        '    if-eqz v2, :rkpairip_done\n\n'
         '    const-string v0, "' + lib_name + '"\n\n'
         '    invoke-static {v0}, Ljava/lang/System;->loadLibrary(Ljava/lang/String;)V\n\n'
         '    :try_rkpairip_end\n'
@@ -246,7 +268,8 @@ def Inject_LoadLibrary_AppFactory(smali_folders, factory_class,
     )
     m = clinit_pat.search(content)
     if m:
-        locals_n = max(int(m.group(3)), 1)
+        # Need at least v0/v1/v2 for the process-name gate.
+        locals_n = max(int(m.group(3)), 3)
         new = (content[:m.start()]
                + m.group(1)
                + f"{m.group(2)}{locals_n}{m.group(4)}"
@@ -257,7 +280,7 @@ def Inject_LoadLibrary_AppFactory(smali_folders, factory_class,
         new_clinit = (
             '\n# direct methods (RKPairip-injected)\n'
             '.method static constructor <clinit>()V\n'
-            '    .locals 1\n\n'
+            '    .locals 3\n\n'
             f'{inj}'
             '    return-void\n'
             '.end method\n'
@@ -278,7 +301,8 @@ def Inject_LoadLibrary_AppFactory(smali_folders, factory_class,
 # Top-level orchestrator
 # ============================================================
 def Frida_Inject_Run(apk_path, decompile_dir, manifest_path, d_manifest_path,
-                     isAPKTool, smali_folders, real_app_class):
+                     isAPKTool, smali_folders, real_app_class,
+                     package_name):
 
     # 1. Extract original signing cert from the input APK's V2/V3 block.
     print(
@@ -319,5 +343,5 @@ def Frida_Inject_Run(apk_path, decompile_dir, manifest_path, d_manifest_path,
               f"falling back to {C.Y}{real_app_class}")
         target_class = real_app_class
 
-    if not Inject_LoadLibrary_AppFactory(smali_folders, target_class):
+    if not Inject_LoadLibrary_AppFactory(smali_folders, target_class, package_name):
         raise RuntimeError(f"Failed to inject loadLibrary into {target_class} <clinit>.")
