@@ -196,26 +196,32 @@ jobs:
             adb push /tmp/signed.apk /data/local/tmp/app.apk
             adb shell pm install -t /data/local/tmp/app.apk
 
-            echo "=== Granting all runtime permissions ==="
+            echo "=== ADB root status ==="
+            adb root && sleep 3 && adb wait-for-device || true
+            adb shell id
+
+            echo "=== Granting storage permissions (API 32 only) ==="
             adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_EXTERNAL_STORAGE || true
             adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.WRITE_EXTERNAL_STORAGE || true
-            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_MEDIA_AUDIO || true
-            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_MEDIA_IMAGES || true
-            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.READ_PHONE_STATE || true
-            adb shell pm grant "${{ github.event.inputs.package_name }}" android.permission.POST_NOTIFICATIONS || true
 
             echo "=== Clearing logcat then launching app ==="
             adb logcat -c
             adb shell monkey -p "${{ github.event.inputs.package_name }}" -c android.intent.category.LAUNCHER 1
-            echo "Waiting 90s for Pairip to decode strings..."
-            sleep 90
+            echo "Waiting 30s for Pairip to decode strings..."
+            sleep 30
 
-            echo "=== Full logcat around launch (crash check) ==="
-            adb logcat -d 2>/dev/null | grep -E "krosbits|FATAL|AndroidRuntime|SIGSEGV|died|crash|Pairip|CoreX|dictionary" | tail -60 || true
+            echo "=== Logcat: app process output ==="
+            adb logcat -d 2>/dev/null | grep -vE "ExperimentPackage|crashrecovery" | grep -E "krosbits|FATAL|AndroidRuntime|SIGSEGV|died|Pairip|CoreX|dictionary" | tail -80 || true
+
+            echo "=== Raw last 40 logcat lines ==="
+            adb logcat -d -t 40 2>/dev/null || true
+
+            echo "=== Root check before find ==="
+            adb shell id
+            adb shell ls /data/data/ | grep krosbits || true
 
             echo "=== Files in /data/data ==="
-            adb shell "find /data/data/${{ github.event.inputs.package_name }} -type f 2>/dev/null" | tee /tmp/found.txt || true
-            cat /tmp/found.txt
+            adb shell "find /data/data/${{ github.event.inputs.package_name }} -type f 2>/dev/null"
             mkdir -p /tmp/appdata
             adb pull "/data/data/${{ github.event.inputs.package_name }}/" /tmp/appdata/ 2>/dev/null || true
             find /tmp/appdata -type f | head -50
