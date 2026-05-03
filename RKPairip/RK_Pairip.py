@@ -18,6 +18,7 @@ from RKPairip.Patch.Fix_Dex import Scan_Application, Smali_Patcher, Replace_Stri
 from RKPairip.Patch.Manifest_Patch import Patch_Manifest, Replace_Application, Encode_Manifest
 from RKPairip.Patch.Other_Patch import Application_Name, Translate_Smali_Name, Merge_Smali_Folders, UnMerge
 from RKPairip.Patch.Kill_Pairip import Kill_Pairip_Run, Find_Real_App_Class, Detect_VMRunner
+from RKPairip.Patch.Frida_Inject import Frida_Inject_Run
 
 
 def Clear():
@@ -119,6 +120,8 @@ def RK_Techno_IND():
     CoreX_Hook = args.Hook_CoreX; isCoreX = False
 
     Kill_Pairip = getattr(args, 'Kill_Pairip', False)
+
+    Frida_Gadget = getattr(args, 'Frida_Gadget', False)
 
     isAPKTool = args.ApkTool; Fix_Dex = args.Repair_Dex
 
@@ -251,6 +254,59 @@ def RK_Techno_IND():
                 + START + f'{M.time.time() - start_time:.2f}' + END +
                 f"\n{C.INFO} {C.G}Pairip is gone. Install directly — no virtual app or .mtd needed."
                 f"\n{C.NOTE} {C.G}If features that depend on Pairip-decrypted strings break, fall back to dictionary mode (default flow)."
+                f'\n{Logo}'
+            )
+
+            if M.os.name == 'posix':
+                M.subprocess.run(['termux-wake-unlock'])
+                exit(f"\n{C.X} {C.C} Releasing Wake Lock...\n")
+
+            exit(0)
+
+        except SystemExit:
+            raise
+        except Exception as e:
+            exit(f"\n{C.ERROR} {e}  ✘\n")
+
+
+    # ---------------- Frida Gadget Flag: -g ( runtime hook, no Pairip removal ) ---------------
+    if Frida_Gadget:
+        try:
+            Super_Value = Find_Real_App_Class(smali_folders) or Application_Name(L_S_F)
+
+            if not Super_Value:
+                exit(f"\n{C.ERROR} Could not find user's Application class — APK may not be Pairip-protected, or already patched.  ✘\n")
+
+            print(f'\n{C.S}  REAL APPLICATION  {C.E} {C.OG}➸❥ {C.G}{Super_Value}  ✔\n')
+
+            # Belt-and-suspenders: also do dictionary-mode smali patches so
+            # signature checks are neutralized even if a hook misses.
+            try:
+                from RKPairip.Patch.Smali_Patch import Smali_Patch
+                Smali_Patch(smali_folders, False, False)
+            except Exception:
+                pass
+
+            Frida_Inject_Run(decompile_dir, manifest_path, d_manifest_path,
+                             isAPKTool, smali_folders, Super_Value)
+
+            build_dir = build_dir.replace('_Pairip.apk', '_Bypass.apk')
+
+            Recompile_Apk(decompile_dir, isAPKTool, build_dir, isFlutter)
+
+            CRC_Fix(M_Skip, apk_path, build_dir, ["AndroidManifest.xml", ".dex"])
+
+            if isAPKTool:
+                FixSigBlock(decompile_dir, apk_path, build_dir, rebuild_dir)
+
+            M.shutil.rmtree(decompile_dir)
+
+            print(
+                f"{C_Line}\n\n"
+                f"\n{C.S}  Final APK  {C.E} {C.OG}➸❥ {C.Y} {build_dir}  {C.G}✔\n"
+                + START + f'{M.time.time() - start_time:.2f}' + END +
+                f"\n{C.INFO} {C.G}Pairip stays alive ( VMRunner methods still work ). Frida-gadget hooks the integrity / license checks at runtime."
+                f"\n{C.NOTE} {C.G}Sign and install directly. No virtual app needed. First launch may be ~1s slower while the gadget loads its hook script."
                 f'\n{Logo}'
             )
 
