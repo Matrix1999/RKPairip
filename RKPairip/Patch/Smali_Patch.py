@@ -9,11 +9,9 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
         "SignatureCheck.smali",
         "LicenseClientV3.smali",
         "LicenseClient.smali",
-        "Application.smali"
+        "Application.smali",
+        "VMRunner.smali"
     ]
-
-    if CoreX_Hook or isCoreX:
-        target_files.append("VMRunner.smali")
 
     patterns = []
 
@@ -53,6 +51,17 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
             ]
         )
 
+    # ---------------- Remove loadLibrary("pairipcore") from clinit (always) ----------------
+    print(f"\n{C.INFO}{C.C} Searching for {C.OG}loadLibrary(\"pairipcore\"){C.C} in VMRunner clinit to remove...")
+
+    patterns.append(
+        (
+            r'\n\s*const-string v\d+, "pairipcore"\n\s*invoke-static \{v\d+\}, Ljava/lang/System;->loadLibrary\(Ljava/lang/String;\)V',
+            r'',
+            'CoreX_Hook RemovePairipcore'
+        )
+    )
+
     # ---------------- loadLibrary ➢ '_Pairip_CoreX' ----------------
     if CoreX_Hook or isCoreX:
 
@@ -71,6 +80,13 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
                 if file in target_files:
                     Smali_Files.append(M.os.path.join(root, file))
 
+    vmrunner_path = next((f for f in Smali_Files if f.endswith("VMRunner.smali")), None)
+
+    if vmrunner_path:
+        print(f"\n{C.S} Found {C.E} {C.G}VMRunner.smali {C.OG}➸❥ {C.Y}{vmrunner_path}")
+    else:
+        print(f"\n{C.WARN} VMRunner.smali NOT FOUND in any smali folder  ✘")
+
     for pattern, replacement, description in patterns:
         for Smali_File in Smali_Files:
             try:
@@ -84,7 +100,20 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
                     print(f"{C.G}    |\n    └── {C.CC}Pattern {C.OG}➸❥ {C.P}{pattern}")
                     open(Smali_File, 'w', encoding='utf-8', errors='ignore').write(new_content)
 
+                    if description == 'CoreX_Hook RemovePairipcore':
+                        print(f"{C.G}    |\n    └── {C.CC}Result  {C.OG}➸❥ {C.G}loadLibrary(\"pairipcore\") REMOVED from clinit  ✔")
+
             except Exception as e:
                 pass
+
+    if vmrunner_path:
+        try:
+            final = open(vmrunner_path, 'r', encoding='utf-8', errors='ignore').read()
+            if '"pairipcore"' in final:
+                print(f"\n{C.WARN} VERIFY  {C.OG}➸❥ {C.R}\"pairipcore\" still present in VMRunner.smali  ✘")
+            else:
+                print(f"\n{C.S} VERIFY  {C.E} {C.G}\"pairipcore\" successfully removed from VMRunner.smali  ✔")
+        except Exception:
+            pass
 
     print(f"\n{C.CC}{'_' * 61}\n")
