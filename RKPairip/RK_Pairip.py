@@ -17,7 +17,7 @@ from RKPairip.Patch.Pairip_CoreX import Check_CoreX, Hook_Core, Delete_SO
 from RKPairip.Patch.Fix_Dex import Scan_Application, Smali_Patcher, Replace_Strings
 from RKPairip.Patch.Manifest_Patch import Patch_Manifest, Replace_Application, Encode_Manifest
 from RKPairip.Patch.Other_Patch import Application_Name, Translate_Smali_Name, Merge_Smali_Folders, UnMerge
-from RKPairip.Patch.Kill_Pairip import Kill_Pairip_Run
+from RKPairip.Patch.Kill_Pairip import Kill_Pairip_Run, Find_Real_App_Class
 
 
 def Clear():
@@ -188,7 +188,9 @@ def RK_Techno_IND():
     # ---------------- Kill Pairip Flag: -k ( Total removal ) ---------------
     if Kill_Pairip:
         try:
-            Super_Value = Application_Name(L_S_F)
+            # Search ALL smali folders, not just the last one — Pairip's Application
+            # class can live in classes.dex (smali/) rather than classes2.dex.
+            Super_Value = Find_Real_App_Class(smali_folders) or Application_Name(L_S_F)
 
             if not Super_Value:
                 exit(f"\n{C.ERROR} Could not find user's Application class — APK may not be Pairip-protected, or already patched.  ✘\n")
