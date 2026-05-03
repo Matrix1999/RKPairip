@@ -161,13 +161,13 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-30-google-apis-x86-64-v1
+          key: avd-32-google-apis-x86-64-v1
 
       - name: Create AVD snapshot (first run only — then cached)
         if: steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: 32
           target: google_apis
           arch: x86_64
           force-avd-creation: false
@@ -178,7 +178,7 @@ jobs:
       - name: Boot emulator, install app, dump dictionary
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: 32
           target: google_apis
           arch: x86_64
           force-avd-creation: false
