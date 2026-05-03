@@ -22,6 +22,11 @@ GADGET_CONFIG = (
     b'"on_change":"reload"}}\n'
 )
 
+# Gadget filename rename — pairip's anti-frida scanner greps /proc/self/maps
+# for "frida". By landing the gadget under an innocuous name we evade the
+# string-based scan. The frida runtime works fine under any filename.
+GADGET_LIB_NAME = "RKMod-runtime"   # loadLibrary("<this>") → libRKMod-runtime.so
+
 
 # ============================================================
 # Gadget download / cache
@@ -118,8 +123,8 @@ def Drop_Gadgets(decompile_dir, isAPKTool, hook_script_bytes):
             continue
 
         arch_dir   = M.os.path.join(lib_root, arch)
-        gadget_dst = M.os.path.join(arch_dir, "libfrida-gadget.so")
-        config_dst = M.os.path.join(arch_dir, "libfrida-gadget.config.so")
+        gadget_dst = M.os.path.join(arch_dir, f"lib{GADGET_LIB_NAME}.so")
+        config_dst = M.os.path.join(arch_dir, f"lib{GADGET_LIB_NAME}.config.so")
         script_dst = M.os.path.join(arch_dir, "libpairip_hook.script.so")
 
         M.shutil.copyfile(gadget_src, gadget_dst)
@@ -189,9 +194,10 @@ def Force_ExtractNativeLibs(decompile_dir, manifest_path, d_manifest_path, isAPK
 # Inject loadLibrary into the appComponentFactory class <clinit>
 # ============================================================
 def Inject_LoadLibrary_AppFactory(smali_folders, factory_class,
-                                  lib_name="frida-gadget"):
-    """Insert `System.loadLibrary("frida-gadget")` at the very top of the
-    appComponentFactory's <clinit>.
+                                  lib_name=GADGET_LIB_NAME):
+    """Insert `System.loadLibrary("<lib_name>")` at the very top of the
+    appComponentFactory's <clinit>, wrapped in a Throwable try/catch so
+    any failure can't propagate ExceptionInInitializerError.
 
     AppComponentFactory is the FIRST application class Android loads
     (LoadedApk.createAppFactory, called before Application is even
@@ -219,9 +225,18 @@ def Inject_LoadLibrary_AppFactory(smali_folders, factory_class,
         return False
 
     content = open(target, 'r', encoding='utf-8').read()
+    # Wrap loadLibrary in try/Throwable so a failure can never propagate
+    # an ExceptionInInitializerError from <clinit> and kill the process.
     inj = (
+        '    :try_rkpairip_start\n'
         '    const-string v0, "' + lib_name + '"\n\n'
         '    invoke-static {v0}, Ljava/lang/System;->loadLibrary(Ljava/lang/String;)V\n\n'
+        '    :try_rkpairip_end\n'
+        '    .catch Ljava/lang/Throwable; {:try_rkpairip_start .. :try_rkpairip_end} :catch_rkpairip\n'
+        '    goto :rkpairip_done\n\n'
+        '    :catch_rkpairip\n'
+        '    move-exception v0\n\n'
+        '    :rkpairip_done\n\n'
     )
 
     clinit_pat = M.re.compile(
