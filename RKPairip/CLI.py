@@ -33,7 +33,9 @@ class CustomArgumentParser(M.argparse.ArgumentParser):
                         f'\n{C.INFO} Hook CoreX {C.P}( For Unity / Flutter & Crashed Apk Apk ) {C.OG}-x {C.Y}/ {C.OG}-a -x \n'
                         f'{EX} -x\n\n'
                         f'\n{C.INFO} Kill Pairip {C.P}( Total removal — no virtual app / .mtd needed ) {C.OG}-k\n'
-                        f'{EX} -k\n'
+                        f'{EX} -k\n\n'
+                        f'\n{C.INFO} Frida Gadget {C.P}( Embed libfrida-gadget.so + JS hook — bypass at runtime, no Pairip removal ) {C.OG}-g\n'
+                        f'{EX} -g\n'
                     )
 
                 elif action.dest == 'Merge':
@@ -118,6 +120,12 @@ def parse_arguments():
         '-k', '--Kill_Pairip',
         action = 'store_true',
         help = f'{C.Y}➸{C.G} Kill Pairip — total removal of Pairip from manifest + smali. No virtual app, no .mtd dictionary, no VM hook. Use when -x crashes. Trade-off: any string Pairip was decrypting at runtime stays null, but the app opens. Best for apps where Pairip is only license/integrity ( e.g. Musicolet ).{C.CC}'
+    )
+
+    additional.add_argument(
+        '-g', '--Frida_Gadget',
+        action = 'store_true',
+        help = f'{C.Y}➸{C.G} Frida Gadget — embed libfrida-gadget.so into the APK and inject System.loadLibrary into the user Application <clinit>. Pairip stays alive ( VMRunner methods keep working ) but signature/integrity/license checks are hooked at runtime by the bundled JS script. Use this for VMRunner-protected APKs where -k crashes ( e.g. Musicolet 6.13 ).{C.CC}'
     )
 
     Ext = ('.apk', '.apks', '.apkm', '.xapk')
