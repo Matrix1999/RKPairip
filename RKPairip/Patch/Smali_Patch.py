@@ -10,7 +10,8 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
         "LicenseClientV3.smali",
         "LicenseClient.smali",
         "Application.smali",
-        "VMRunner.smali"
+        "VMRunner.smali",
+        "StartupLauncher.smali"
     ]
 
     patterns = []
@@ -62,6 +63,20 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
         )
     )
 
+    # ---------------- Bypass StartupLauncher.launch() so <clinit> completes ----------------
+    # StartupLauncher.launch() is called from MyApplication.<clinit>() — a STATIC initializer.
+    # Static initializers run before Application.<init>(), so if launch() crashes
+    # (UnsatisfiedLinkError on executeVM because libpairipcore is not loaded),
+    # Application.<init>() never runs, callobjects() never fires, and no dictionary is dumped.
+    # Fix: make launch() return-void immediately so <clinit> completes safely.
+    patterns.append(
+        (
+            r'(\.method public static declared-synchronized launch\(\)V\s+)\.locals \d+[\s\S]*?(\n\.end method)',
+            r'\1.locals 0\n\n    return-void\2',
+            'StartupLauncher launch() bypass'
+        )
+    )
+
     # ---------------- loadLibrary ➢ '_Pairip_CoreX' ----------------
     if CoreX_Hook or isCoreX:
 
@@ -81,16 +96,25 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
                     Smali_Files.append(M.os.path.join(root, file))
 
     vmrunner_path = next((f for f in Smali_Files if f.endswith("VMRunner.smali")), None)
+    startup_path = next((f for f in Smali_Files if f.endswith("StartupLauncher.smali")), None)
 
     if vmrunner_path:
         print(f"\n{C.S} Found {C.E} {C.G}VMRunner.smali {C.OG}➸❥ {C.Y}{vmrunner_path}")
     else:
         print(f"\n{C.WARN} VMRunner.smali NOT FOUND in any smali folder  ✘")
 
+    if startup_path:
+        print(f"\n{C.S} Found {C.E} {C.G}StartupLauncher.smali {C.OG}➸❥ {C.Y}{startup_path}")
+    else:
+        print(f"\n{C.WARN} StartupLauncher.smali NOT FOUND in any smali folder  ✘")
+
     for pattern, replacement, description in patterns:
         for Smali_File in Smali_Files:
             try:
-                if description.startswith("CoreX_Hook") and not Smali_File.endswith("VMRunner.smali"): continue
+                if description.startswith("CoreX_Hook") and not Smali_File.endswith("VMRunner.smali"):
+                    continue
+                if description == 'StartupLauncher launch() bypass' and not Smali_File.endswith("StartupLauncher.smali"):
+                    continue
 
                 content = open(Smali_File, 'r', encoding='utf-8', errors='ignore').read()
                 new_content = M.re.sub(pattern, replacement, content)
@@ -102,6 +126,8 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
 
                     if description == 'CoreX_Hook RemovePairipcore':
                         print(f"{C.G}    |\n    └── {C.CC}Result  {C.OG}➸❥ {C.G}loadLibrary(\"pairipcore\") REMOVED from clinit  ✔")
+                    elif description == 'StartupLauncher launch() bypass':
+                        print(f"{C.G}    |\n    └── {C.CC}Result  {C.OG}➸❥ {C.G}StartupLauncher.launch() bypassed — <clinit> will complete safely  ✔")
 
             except Exception as e:
                 pass
@@ -113,6 +139,16 @@ def Smali_Patch(smali_folders, CoreX_Hook, isCoreX):
                 print(f"\n{C.WARN} VERIFY  {C.OG}➸❥ {C.R}\"pairipcore\" still present in VMRunner.smali  ✘")
             else:
                 print(f"\n{C.S} VERIFY  {C.E} {C.G}\"pairipcore\" successfully removed from VMRunner.smali  ✔")
+        except Exception:
+            pass
+
+    if startup_path:
+        try:
+            final = open(startup_path, 'r', encoding='utf-8', errors='ignore').read()
+            if 'return-void\n.end method' in final and '.locals 0' in final:
+                print(f"\n{C.S} VERIFY  {C.E} {C.G}StartupLauncher.launch() is now a no-op  ✔")
+            else:
+                print(f"\n{C.WARN} VERIFY  {C.OG}➸❥ {C.R}StartupLauncher.launch() was NOT bypassed  ✘")
         except Exception:
             pass
 
