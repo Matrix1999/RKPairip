@@ -6,6 +6,46 @@ from RKPairip.Patch.Manifest_Patch import Decode_Manifest, Encode_Manifest, Fix_
 C_Line = f"{C.CC}{'_' * 61}"
 
 
+# ---------------- Find user's real Application class ----------------
+def Find_Real_App_Class(smali_folders):
+    """Locate com/pairip/application/Application.smali across ALL smali folders
+    and read its `.super` line to recover the user's real Application class."""
+
+    rel = M.os.path.join("com", "pairip", "application", "Application.smali")
+    super_pat = M.re.compile(r'\.super\s+L([^;\s]+);')
+
+    for folder in smali_folders:
+        candidate = M.os.path.join(folder, rel)
+        if M.os.path.isfile(candidate):
+            try:
+                content = open(candidate, 'r', encoding='utf-8', errors='ignore').read()
+            except Exception:
+                continue
+            m = super_pat.search(content)
+            if m:
+                cls = m.group(1).replace('/', '.')
+                # Sanity: don't return android.app.Application — that means it's already neutered
+                if cls and cls != 'android.app.Application':
+                    return cls
+
+    # Fallback: walk every smali folder for any file at com/pairip/application/Application.smali
+    for folder in smali_folders:
+        for root, dirs, files in M.os.walk(folder):
+            if 'Application.smali' in files and root.endswith(M.os.path.join('com', 'pairip', 'application')):
+                fp = M.os.path.join(root, 'Application.smali')
+                try:
+                    content = open(fp, 'r', encoding='utf-8', errors='ignore').read()
+                except Exception:
+                    continue
+                m = super_pat.search(content)
+                if m:
+                    cls = m.group(1).replace('/', '.')
+                    if cls and cls != 'android.app.Application':
+                        return cls
+
+    return None
+
+
 # ---------------- Strip com/pairip/* + residual references ----------------
 def Strip_Pairip_Smali(smali_folders):
 
