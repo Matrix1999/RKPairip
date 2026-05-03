@@ -46,6 +46,53 @@ def Find_Real_App_Class(smali_folders):
     return None
 
 
+# ---------------- Detect Pairip VMRunner method protection ----------------
+def Detect_VMRunner(smali_folders):
+    """Detect Pairip VMRunner-style method protection.
+
+    VMRunner replaces method bodies with reflection trampolines and stores the
+    target Method objects in junk holder classes that contain ONLY:
+        .field public static <name>:Ljava/lang/reflect/Method;
+    declarations and NO `<clinit>` (libpairipcore populates them at runtime).
+
+    If we strip pairip on such an APK, every protected method NPEs on
+    Method.invoke(...). Refuse early with a clear message.
+
+    Returns (count, samples) — count of holder classes detected, up to 5 sample paths.
+    """
+
+    field_pat = M.re.compile(r'^\.field\s+public\s+static\s+\w+\s*:\s*Ljava/lang/reflect/Method;\s*$', M.re.M)
+    clinit_pat = M.re.compile(r'\.method\s+static\s+constructor\s+<clinit>\(\)V')
+
+    holder_count = 0
+    samples = []
+
+    for smali_folder in smali_folders:
+        for root, _, files in M.os.walk(smali_folder):
+            for f in files:
+                if not f.endswith('.smali'):
+                    continue
+                fp = M.os.path.join(root, f)
+                try:
+                    content = open(fp, 'r', encoding='utf-8', errors='ignore').read()
+                except Exception:
+                    continue
+
+                method_fields = field_pat.findall(content)
+                if len(method_fields) < 2:
+                    continue
+                # Must have NO <clinit> (i.e. fields are populated externally)
+                if clinit_pat.search(content):
+                    continue
+
+                holder_count += 1
+                if len(samples) < 5:
+                    rel = M.os.path.relpath(fp, smali_folder)
+                    samples.append(f"{rel} ({len(method_fields)} Method fields)")
+
+    return holder_count, samples
+
+
 # ---------------- Strip com/pairip/* + residual references ----------------
 def Strip_Pairip_Smali(smali_folders):
 
