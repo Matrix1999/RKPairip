@@ -288,7 +288,7 @@ def RK_Techno_IND():
                 pass
 
             Frida_Inject_Run(apk_path, decompile_dir, manifest_path, d_manifest_path,
-                             isAPKTool, smali_folders, Super_Value)
+                             isAPKTool, smali_folders, Super_Value, Package_Name)
 
             build_dir = build_dir.replace('_Pairip.apk', '_Bypass.apk')
 
