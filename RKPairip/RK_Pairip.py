@@ -17,7 +17,7 @@ from RKPairip.Patch.Pairip_CoreX import Check_CoreX, Hook_Core, Delete_SO
 from RKPairip.Patch.Fix_Dex import Scan_Application, Smali_Patcher, Replace_Strings
 from RKPairip.Patch.Manifest_Patch import Patch_Manifest, Replace_Application, Encode_Manifest
 from RKPairip.Patch.Other_Patch import Application_Name, Translate_Smali_Name, Merge_Smali_Folders, UnMerge
-from RKPairip.Patch.Kill_Pairip import Kill_Pairip_Run, Find_Real_App_Class
+from RKPairip.Patch.Kill_Pairip import Kill_Pairip_Run, Find_Real_App_Class, Detect_VMRunner
 
 
 def Clear():
@@ -194,6 +194,34 @@ def RK_Techno_IND():
 
             if not Super_Value:
                 exit(f"\n{C.ERROR} Could not find user's Application class — APK may not be Pairip-protected, or already patched.  ✘\n")
+
+            # ---- Refuse if VMRunner method protection is detected ----
+            vm_count, vm_samples = Detect_VMRunner(smali_folders)
+            if vm_count >= 3:
+                msg = [
+                    "",
+                    f"{C.ERROR} VMRunner method protection detected — '-k' cannot be used on this APK.",
+                    "",
+                    f"  Holder classes found: {vm_count}",
+                ]
+                for s in vm_samples:
+                    msg.append(f"    • {s}")
+                msg += [
+                    "",
+                    "  These classes hold static Ljava/lang/reflect/Method; fields with NO <clinit>.",
+                    "  libpairipcore.so populates them at runtime by decrypting method bodies",
+                    "  that pairip extracted out of the dex. If we strip pairip, every protected",
+                    "  method NPEs on Method.invoke(...) — exactly what crashed AAProvider.onCreate.",
+                    "",
+                    "  RUN WITHOUT -k INSTEAD:",
+                    f"    RKPairip -i <apk>",
+                    "",
+                    "  Default mode keeps libpairipcore + VMRunner alive and only neutralizes",
+                    "  signature / integrity / license checks. Sign and install directly —",
+                    "  no Dual Space, no virtual app, no .mtd.",
+                    "",
+                ]
+                exit("\n".join(msg))
 
             OR_App = f'\n{C.S}  REAL APPLICATION  {C.E} {C.OG}➸❥ {C.G}{Super_Value}  ✔\n'
             print(OR_App)
