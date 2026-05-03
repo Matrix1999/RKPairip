@@ -1,0 +1,223 @@
+name: Pairip Dictionary Dumper
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'Direct download URL of .apk or .apks file'
+        required: true
+        default: 'https://litter.catbox.moe/97b1mu.apks'
+      package_name:
+        description: 'App package name'
+        required: true
+        default: 'in.krosbits.musicolet'
+
+jobs:
+  dump-dictionary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # RKPairip was written for Termux — stub all missing Termux commands for Ubuntu
+      - name: Install aapt and stub Termux commands
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y aapt
+
+          # Fake pkg (Termux package manager) — avoid heredoc, use printf
+          printf '#!/bin/bash\nif [ "$1" = "list-installed" ]; then\n  dpkg -l | awk "{print \\$2}"\nelif [ "$1" = "install" ]; then\n  shift; [ "$1" = "-y" ] && shift\n  sudo apt-get install -y "$@"\nfi\n' | sudo tee /usr/local/bin/pkg > /dev/null
+          sudo chmod +x /usr/local/bin/pkg
+
+          # Fake termux-wake-lock / termux-wake-unlock (no-ops)
+          printf '#!/bin/bash\nexit 0\n' | sudo tee /usr/local/bin/termux-wake-lock > /dev/null
+          printf '#!/bin/bash\nexit 0\n' | sudo tee /usr/local/bin/termux-wake-unlock > /dev/null
+          sudo chmod +x /usr/local/bin/termux-wake-lock /usr/local/bin/termux-wake-unlock
+
+          echo "Stubs: $(which termux-wake-lock) $(which termux-wake-unlock)"
+          pkg list-installed | grep -c aapt && echo "pkg wrapper OK"
+
+      # ── CACHE 1: pip packages ─────────────────────────────────────────────
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-rk-py312-${{ runner.os }}-v1
+          restore-keys: pip-rk-py312-
+
+      - name: Install RKPairip
+        run: |
+          pip install --force-reinstall https://github.com/TechnoIndian/RKPairip/archive/refs/heads/main.zip
+          echo "RKPairip installed at: $(which RKPairip)"
+
+      # ── CACHE 2: RKPairip JARs ────────────────────────────────────────────
+      - name: Cache RKPairip JARs
+        uses: actions/cache@v4
+        with:
+          path: ~/rk_jars
+          key: rk-jars-v3
+
+      - name: Restore JARs from cache
+        run: |
+          RK_BIN=$(dirname $(which RKPairip))
+          mkdir -p ~/rk_jars
+          for jar in APKEditor.jar APKTool_OR.jar Pairip.jar Axml2Xml.jar; do
+            if [ -f "$HOME/rk_jars/$jar" ] && [ ! -f "$RK_BIN/$jar" ]; then
+              cp "$HOME/rk_jars/$jar" "$RK_BIN/$jar"
+              echo "Restored: $jar"
+            fi
+          done
+
+      - name: Download APK
+        run: |
+          curl -L -o input.apks "${{ github.event.inputs.apk_url }}"
+          echo "Downloaded: $(ls -lh input.apks)"
+
+      - name: Run RKPairip with CoreX Hook
+        run: |
+          RKPairip -i input.apks -x 2>&1 | tee rk_output.log || true
+          echo "=== Workspace files after RKPairip ==="
+          ls -lah
+          echo "=== Any .apk files ==="
+          find . -name "*.apk" 2>/dev/null
+
+      - name: Save JARs to cache dir
+        if: always()
+        continue-on-error: true
+        run: |
+          RK_BIN=$(dirname $(which RKPairip))
+          mkdir -p ~/rk_jars
+          for jar in APKEditor.jar APKTool_OR.jar Pairip.jar Axml2Xml.jar; do
+            [ -f "$RK_BIN/$jar" ] && cp "$RK_BIN/$jar" ~/rk_jars/ && echo "Cached: $jar" || true
+          done
+          ls ~/rk_jars/ || true
+
+      - name: Upload RKPairip log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rk-pairip-log
+          path: rk_output.log
+          retention-days: 3
+
+      - name: Find patched APK
+        id: fix_apk
+        run: |
+          PATCHED=$(find . -name "*_Pairip.apk" 2>/dev/null | head -1)
+          if [ -z "$PATCHED" ]; then
+            echo "ERROR: No patched APK found"
+            cat rk_output.log
+            exit 1
+          fi
+          echo "patched_apk=$PATCHED" >> $GITHUB_OUTPUT
+          echo "Found: $PATCHED ($(ls -lh $PATCHED | awk '{print $5}'))"
+          echo "RKPairip -x already injects CoreX hook + signs via APKEditor — installing as-is"
+
+      # ── Sign APK (zipalign + apksigner) before emulator boots ────────────
+      - name: Sign patched APK with debug key
+        run: |
+          APK="${{ steps.fix_apk.outputs.patched_apk }}"
+          SDK="/usr/local/lib/android/sdk"
+          APKSIGNER=$(find "$SDK/build-tools" -name "apksigner" 2>/dev/null | sort -rV | head -1)
+          ZIPALIGN=$(find "$SDK/build-tools" -name "zipalign" 2>/dev/null | sort -rV | head -1)
+          echo "apksigner: $APKSIGNER"
+          echo "zipalign:  $ZIPALIGN"
+          keytool -genkeypair -v -keystore /tmp/debug.keystore -alias debug \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Debug,O=Debug,C=US"
+          $ZIPALIGN -f -p 4 "$APK" /tmp/signed.apk
+          $APKSIGNER sign \
+            --ks /tmp/debug.keystore --ks-key-alias debug \
+            --ks-pass pass:android --key-pass pass:android \
+            --v3-signing-enabled false \
+            /tmp/signed.apk
+          echo "Signed APK: $(ls -lh /tmp/signed.apk)"
+
+      # ── CACHE 3: Android AVD ──────────────────────────────────────────────
+      - name: Cache AVD
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-30-google-apis-arm64-v1
+
+      - name: Create AVD snapshot (first run only — then cached)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: arm64-v8a
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "AVD snapshot ready"
+
+      - name: Boot emulator, install app, dump dictionary
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: arm64-v8a
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            adb wait-for-device
+            sleep 10
+            adb shell input keyevent 82
+            adb root
+            sleep 5
+            adb wait-for-device
+            adb shell settings put global package_verifier_enable 0
+            adb push /tmp/signed.apk /data/local/tmp/app.apk
+            adb shell pm install -r -t /data/local/tmp/app.apk
+
+            echo "=== Launching app ==="
+            adb shell monkey -p "${{ github.event.inputs.package_name }}" -c android.intent.category.LAUNCHER 1
+            echo "Waiting 50s for Pairip to decode strings..."
+            sleep 50
+            adb logcat -d | grep -iE "pairip|krosbits|dictionary" | tail -40 || true
+            adb shell "find /data/data/${{ github.event.inputs.package_name }} -type f 2>/dev/null" | tee /tmp/found.txt || true
+            cat /tmp/found.txt
+            mkdir -p /tmp/appdata
+            adb pull "/data/data/${{ github.event.inputs.package_name }}/" /tmp/appdata/ 2>/dev/null || true
+            find /tmp/appdata -type f | head -50
+
+      - name: Upload dictionary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pairip-dictionary-${{ github.event.inputs.package_name }}
+          path: /tmp/appdata/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload patched APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-apk
+          path: "**/*_Pairip.apk"
+          if-no-files-found: warn
+          retention-days: 7
