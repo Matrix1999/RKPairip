@@ -39,7 +39,8 @@ packages.find = {}
 
 package-data = { RKPairip = [
   "Utils/Files/Objectlogger.smali",
-  "Utils/Files/lib_Pairip_CoreX.so"
+  "Utils/Files/lib_Pairip_CoreX.so",
+  "Hooks/pairip_bypass.js"
 ] }
 
 [project.urls]
