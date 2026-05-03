@@ -287,7 +287,7 @@ def RK_Techno_IND():
             except Exception:
                 pass
 
-            Frida_Inject_Run(decompile_dir, manifest_path, d_manifest_path,
+            Frida_Inject_Run(apk_path, decompile_dir, manifest_path, d_manifest_path,
                              isAPKTool, smali_folders, Super_Value)
 
             build_dir = build_dir.replace('_Pairip.apk', '_Bypass.apk')
